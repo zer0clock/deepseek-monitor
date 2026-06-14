@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build artifacts
+build/
+dist/
+*.spec
+
+# Test artifacts
+.pytest_cache/
+.coverage
+
+# Config (contains API key — never commit)
+config.json
+
+# Generated icons (except the source favicon)
+*.ico
+*.png
+!assets/favicon.ico
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store

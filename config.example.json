@@ -1,0 +1,10 @@
+{
+  "api_key": "sk-your-api-key-here",
+  "refresh_interval": 60,
+  "language": "zh",
+  "minimize_to_tray": true,
+  "show_taskbar_widget": true,
+  "taskbar_widget_position": "right",
+  "win_x": null,
+  "win_y": null
+}
