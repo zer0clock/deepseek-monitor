@@ -13,6 +13,8 @@
 |------|------|
 | 📌 **任务栏余额** | 余额直接嵌入 Windows 任务栏（SetParent + LWA_COLORKEY） |
 | 💰 **余额查询** | 显示总余额 / 赠送余额 / 充值余额，支持 CNY / USD |
+| 🎨 **自定义颜色** | 余额高/中/低三档颜色可用系统色盘自定义 |
+| 📏 **可调阈值** | 余额区间的 High / Low 阈值可自由修改 |
 | ⏱️ **自动刷新** | 15 秒 ~ 1 小时，可配置 |
 | 🔔 **系统托盘** | 最小化到通知区域，双击恢复 |
 | 🌐 **中英双语** | 一键切换 |
@@ -49,6 +51,8 @@ python main.py
 | `language` | 界面语言 `"zh"` / `"en"` | `"zh"` |
 | `show_taskbar_widget` | 任务栏小组件开关 | `true` |
 | `taskbar_widget_position` | 靠左 `"left"` / 靠右 `"right"` | `"right"` |
+| `tw_color_high` / `_mid` / `_low` | 余额高/中/低颜色 (RGB hex) | `#99FF66` / `#FFD66D` / `#FF6666` |
+| `tw_threshold_high` / `_low` | 余额颜色切换阈值 | `20.0` / `5.0` |
 
 ---
 
