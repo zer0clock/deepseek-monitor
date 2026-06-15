@@ -22,6 +22,12 @@ from tkinter import ttk, messagebox
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+# Resolve bundled assets path (works in PyInstaller and development)
+if getattr(sys, "frozen", False):
+    BASE_PATH = Path(sys._MEIPASS)
+else:
+    BASE_PATH = Path(__file__).resolve().parent.parent
+
 from src.config import Config, load_config, save_config, DATA_DIR
 from src.api import DeepSeekClient, DeepSeekAPIError
 
@@ -338,7 +344,7 @@ class DeepSeekMonitorApp:
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         if self.config.win_x is not None:
             self.root.geometry(f"+{self.config.win_x}+{self.config.win_y}")
-        ico = Path(__file__).resolve().parent.parent / "assets" / "favicon.ico"
+        ico = BASE_PATH / "assets" / "favicon.ico"
         if ico.exists():
             try: self.root.iconbitmap(str(ico))
             except: pass
@@ -600,7 +606,7 @@ class DeepSeekMonitorApp:
         except Exception:
             logger.warning("Failed to import TrayIcon:\n%s", traceback.format_exc())
             return
-        ico = Path(__file__).resolve().parent.parent / "assets" / "favicon.ico"
+        ico = BASE_PATH / "assets" / "favicon.ico"
         if not ico.exists():
             ico = DATA_DIR / "icon.png"
             if not ico.exists() and HAS_PIL:
