@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Optional, Dict
 
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, colorchooser
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -28,7 +28,7 @@ if getattr(sys, "frozen", False):
 else:
     BASE_PATH = Path(__file__).resolve().parent.parent
 
-from src.config import Config, load_config, save_config, DATA_DIR
+from src.config import Config, load_config, save_config, DATA_DIR, rgb_to_bgr
 from src.api import DeepSeekClient, DeepSeekAPIError
 
 logger = logging.getLogger(__name__)
@@ -71,8 +71,10 @@ T = {
         "refresh_int":   "⏱ Refresh Interval",
         "refresh_hint":  "How often to poll the balance API",
         "taskbar_wid":   "📌 Taskbar Widget",
-        "taskbar_hint":  "Show balance directly on Windows taskbar",
-        "enable":        "Enable",
+        "taskbar_hint":   "Show balance directly on Windows taskbar",
+        "balance_colors": "Balance colors:",
+        "thresholds":     "Thresholds:",
+        "enable":         "Enable",
         "position":      "Position",
         "right":         "Right",
         "left":          "Left",
@@ -121,8 +123,10 @@ T = {
         "refresh_int":   "⏱ 刷新间隔",
         "refresh_hint":  "自动轮询余额 API 的频率",
         "taskbar_wid":   "📌 任务栏小组件",
-        "taskbar_hint":  "在 Windows 任务栏上直接显示余额",
-        "enable":        "启用",
+        "taskbar_hint":   "在 Windows 任务栏上直接显示余额",
+        "balance_colors": "余额颜色：",
+        "thresholds":     "阈值：",
+        "enable":         "启用",
         "position":      "位置",
         "right":         "右侧",
         "left":          "左侧",
@@ -483,6 +487,7 @@ class DeepSeekMonitorApp:
             self._sec_tw.pack(anchor="w")
             self._taskbar_hint_lbl = ttk.Label(twf, text=t("taskbar_hint"), style="Sm.TLabel")
             self._taskbar_hint_lbl.pack(anchor="w", pady=(2, 8))
+            # Enable / position row
             twr = ttk.Frame(twf, style="C.TFrame"); twr.pack(fill="x")
             self._tw_en = tk.BooleanVar(value=self.config.show_taskbar_widget)
             self._tw_chk = tk.Checkbutton(twr, text=t("enable"), variable=self._tw_en,
@@ -495,6 +500,43 @@ class DeepSeekMonitorApp:
             ttk.Combobox(twr, textvariable=self._tw_pos, state="readonly",
                 values=["right", "left"], width=8).pack(side="left")
             self._tw_pos.trace_add("write", lambda *_: self._toggle_tw())
+            # Balance color pickers
+            clr_f = ttk.Frame(twf, style="C.TFrame")
+            clr_f.pack(fill="x", pady=(10, 0))
+            self._tw_colors_label = ttk.Label(clr_f, text=t("balance_colors"), style="C.TLabel", font=F["small"])
+            self._tw_colors_label.pack(side="left")
+            self._tw_colors = {}  # key → swatch widget
+            th = self.config.tw_threshold_high
+            tl = self.config.tw_threshold_low
+            for key, cfg_attr, tip in [
+                ("high", "tw_color_high", f"> {th:.0f}"),
+                ("mid",  "tw_color_mid",  f"{tl:.0f} ~ {th:.0f}"),
+                ("low",  "tw_color_low",  f"≤ {tl:.0f}"),
+            ]:
+                hex_val = getattr(self.config, cfg_attr, "")
+                frm = ttk.Frame(clr_f, style="C.TFrame")
+                frm.pack(side="left", padx=(8, 0))
+                sw = tk.Label(frm, text="  ", bg=hex_val, relief="ridge",
+                              bd=1, width=3, font=("", 1))
+                sw.pack(side="left", padx=(0, 2))
+                sw.bind("<Button-1>", lambda e, a=cfg_attr, s=sw: self._pick_color(a, s))
+                ttk.Label(frm, text=tip, style="Sm.TLabel").pack(side="left")
+                self._tw_colors[key] = sw
+            # Threshold entry fields
+            thr_f = ttk.Frame(twf, style="C.TFrame")
+            thr_f.pack(fill="x", pady=(8, 0))
+            self._tw_thr_label = ttk.Label(thr_f, text=t("thresholds"), style="C.TLabel", font=F["small"])
+            self._tw_thr_label.pack(side="left")
+            self._tw_thr_high_var = tk.StringVar(value=str(self.config.tw_threshold_high))
+            self._tw_thr_low_var  = tk.StringVar(value=str(self.config.tw_threshold_low))
+            for lbl, var in [("  High:", self._tw_thr_high_var), ("  Low:", self._tw_thr_low_var)]:
+                ttk.Label(thr_f, text=lbl, style="Sm.TLabel").pack(side="left")
+                e = tk.Entry(thr_f, textvariable=var, font=F["mono"],
+                             bg=C["bg3"], fg=C["text"], insertbackground=C["text"],
+                             relief="flat", width=6, justify="center")
+                e.pack(side="left", padx=(2, 0))
+                e.bind("<FocusOut>", lambda _: self._save_thresholds())
+                e.bind("<Return>", lambda _: self._save_thresholds())
 
         # Language
         lf = ttk.Frame(content, style="C.TFrame", padding=16)
@@ -538,6 +580,8 @@ class DeepSeekMonitorApp:
             self._sec_tw.configure(text=t("taskbar_wid"))
             self._taskbar_hint_lbl.configure(text=t("taskbar_hint"))
             self._tw_chk.configure(text=t("enable"))
+            self._tw_colors_label.configure(text=t("balance_colors"))
+            self._tw_thr_label.configure(text=t("thresholds"))
         self._sec_lang.configure(text=t("language"))
         self._sec_about.configure(text=t("about"))
         self._about_lbl.configure(text=t("about_text"))
@@ -569,6 +613,12 @@ class DeepSeekMonitorApp:
             label=t("balance"),         # i18n: "余额" or "Balance"
             refresh_seconds=self.config.refresh_interval,
             position=self.config.taskbar_widget_position,
+            color_high=rgb_to_bgr(self.config.tw_color_high),
+            color_mid=rgb_to_bgr(self.config.tw_color_mid),
+            color_low=rgb_to_bgr(self.config.tw_color_low),
+            color_label=rgb_to_bgr(self.config.tw_color_label),
+            threshold_high=self.config.tw_threshold_high,
+            threshold_low=self.config.tw_threshold_low,
         )
         self._tw.start()
 
@@ -758,6 +808,37 @@ class DeepSeekMonitorApp:
             self._lbl_status.configure(text=t("no_key"))
 
     # ── Settings helpers ──────────────────────────────────────────────────────
+
+    def _pick_color(self, cfg_attr: str, swatch: tk.Label):
+        """Open system color picker and apply the chosen color."""
+        current = getattr(self.config, cfg_attr, "#808080")
+        result = colorchooser.askcolor(color=current, parent=self.root,
+                                       title="Pick balance color")
+        if not result or not result[1]:
+            return  # user cancelled
+        hex_color = result[1]
+        setattr(self.config, cfg_attr, hex_color)
+        save_config(self.config)
+        swatch.configure(bg=hex_color)
+        # Restart taskbar widget with new colors
+        if self._tw and self._tw.is_alive():
+            self._start_tw()
+
+    def _save_thresholds(self):
+        """Read threshold values from UI and save to config."""
+        try:
+            th = float(self._tw_thr_high_var.get())
+            tl = float(self._tw_thr_low_var.get())
+            if tl >= th:
+                return  # invalid range, ignore
+            self.config.tw_threshold_high = th
+            self.config.tw_threshold_low  = tl
+            save_config(self.config)
+            # Restart taskbar widget with new thresholds
+            if self._tw and self._tw.is_alive():
+                self._start_tw()
+        except ValueError:
+            pass
 
     def _toggle_key_vis(self):
         cur = self._key_entry.cget("show")

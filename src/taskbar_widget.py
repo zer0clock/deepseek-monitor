@@ -145,7 +145,7 @@ class TaskbarWidget:
     Minimal balance-only taskbar widget.
 
     Embeds into Shell_TrayWnd via SetParent + LWA_COLORKEY.
-    Shows: Label ("DS") + Balance value (¥xxx.xx).
+    Shows: Label + Balance value (¥xxx.xx).
     """
 
     TIMER_ID    = 4001
@@ -153,13 +153,12 @@ class TaskbarWidget:
     THEME_TIMER = 4003
     _instance_counter = 0
 
-    # BGR colors
-    C_GREEN  = 0x66FF99
-    C_YELLOW = 0x66D6FF
-    C_RED    = 0x6666FF
-    C_WHITE  = 0xFFFFFF
-    C_GRAY   = 0x999999
-    C_LABEL  = 0x808080
+    # Fallback BGR defaults
+    _C_GREEN  = 0x66FF99
+    _C_YELLOW = 0x66D6FF
+    _C_RED    = 0x6666FF
+    _C_GRAY   = 0x999999
+    _C_LABEL  = 0x808080
 
     TRANS_DARK  = 0x292828
     TRANS_LIGHT = 0xD3D2D2
@@ -167,13 +166,25 @@ class TaskbarWidget:
     THEME_CHECK_SECONDS = 5  # how often to re-check Windows theme
 
     def __init__(self, api_key: str, label: str = "Balance",
-                 refresh_seconds: int = 60, position: str = "right"):
+                 refresh_seconds: int = 60, position: str = "right",
+                 color_high: int = None, color_mid: int = None,
+                 color_low: int = None, color_label: int = None,
+                 threshold_high: float = 20.0, threshold_low: float = 5.0):
         TaskbarWidget._instance_counter += 1
         self._wnd_class = f"DSBalance_{TaskbarWidget._instance_counter}"
-        self.api_key          = api_key
-        self.label            = label        # top label text (i18n)
-        self.refresh_seconds  = refresh_seconds
-        self.position         = position
+        self.api_key           = api_key
+        self.label             = label        # top label text (i18n)
+        self.refresh_seconds   = refresh_seconds
+        self.position          = position
+        self.threshold_high    = threshold_high
+        self.threshold_low     = threshold_low
+
+        # Custom BGR balance colors (use defaults if not provided)
+        self.C_GREEN  = color_high if color_high is not None else self._C_GREEN
+        self.C_YELLOW = color_mid  if color_mid  is not None else self._C_YELLOW
+        self.C_RED    = color_low  if color_low  is not None else self._C_RED
+        self.C_LABEL  = color_label if color_label is not None else self._C_LABEL
+        self.C_GRAY   = self._C_GRAY
 
         self._hwnd: Optional[int] = None
         self._h_taskbar: Optional[int] = None
@@ -188,7 +199,7 @@ class TaskbarWidget:
         self._last_taskbar: Optional[int] = None  # detect explorer restart
 
         self._value = "..."
-        self._color = self.C_GRAY
+        self._color = self._C_GRAY
 
         self._hfont_l = None
         self._hfont_v = None
@@ -407,9 +418,9 @@ class TaskbarWidget:
                 total = float(b.get("total_balance", 0))
                 sym = "$" if b.get("currency") == "USD" else "¥"
                 self._value = f"{sym}{total:.2f}"
-                if total > 20:
+                if total > self.threshold_high:
                     self._color = self.C_GREEN
-                elif total > 5:
+                elif total > self.threshold_low:
                     self._color = self.C_YELLOW
                 else:
                     self._color = self.C_RED
