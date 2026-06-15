@@ -88,8 +88,8 @@ T = {
         "pricing_title": "💰 Model Pricing (CNY / 1M tokens)",
         "pricing_text":  "  Model              Input    Output   Cache Hit\n"
                          "  ────────────────────────────────────────────\n"
-                         "  deepseek-v4-pro    ¥2.00    ¥8.00    ¥0.50\n"
-                         "  deepseek-v4-flash  ¥0.50    ¥2.00    ¥0.10",
+                         "  deepseek-v4-pro    ¥3.00    ¥6.00    ¥0.025\n"
+                         "  deepseek-v4-flash  ¥1.00    ¥2.00    ¥0.02",
         "confirm_clr":    "Clear all local data?",
         "btn_exit":       "Exit",
         "btn_show":       "Show Window",
@@ -138,8 +138,8 @@ T = {
         "pricing_title": "💰 模型定价 (CNY / 1M tokens)",
         "pricing_text":  "  Model              Input    Output   Cache Hit\n"
                          "  ────────────────────────────────────────────\n"
-                         "  deepseek-v4-pro    ¥2.00    ¥8.00    ¥0.50\n"
-                         "  deepseek-v4-flash  ¥0.50    ¥2.00    ¥0.10",
+                         "  deepseek-v4-pro    ¥3.00    ¥6.00    ¥0.025\n"
+                         "  deepseek-v4-flash  ¥1.00    ¥2.00    ¥0.02",
         "confirm_clr":    "确定清除所有本地数据？",
         "btn_exit":       "退出",
         "btn_show":       "显示窗口",
