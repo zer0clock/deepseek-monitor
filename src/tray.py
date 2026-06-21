@@ -39,6 +39,7 @@ SW_SHOW           = 5
 
 MF_STRING    = 0x00000000
 MF_SEPARATOR = 0x00000800
+MF_CHECKED   = 0x00000008
 TPM_BOTTOMALIGN = 0x0020
 TPM_LEFTALIGN   = 0x0000
 TPM_RIGHTBUTTON = 0x0002
@@ -297,11 +298,20 @@ class TrayIcon:
             return
 
         hmenu = CreatePopupMenu()
-        for i, (label, cb) in enumerate(self.menu_items):
-            if label == "-":
+        idx = 0
+        for item in self.menu_items:
+            if item[0] == "-":
                 AppendMenuW(hmenu, MF_SEPARATOR, 0, None)
             else:
-                AppendMenuW(hmenu, MF_STRING, 1000 + i, label)
+                label = item[0]
+                flags = MF_STRING
+                # Support optional third element: checked (bool or callable)
+                if len(item) >= 3:
+                    checked = item[2]() if callable(item[2]) else item[2]
+                    if checked:
+                        flags |= MF_CHECKED
+                AppendMenuW(hmenu, flags, 1000 + idx, label)
+                idx += 1
 
         pt = POINT()
         GetCursorPos(ctypes.byref(pt))
@@ -328,9 +338,12 @@ class TrayIcon:
             return 0
         elif msg == WM_COMMAND:
             item_id = wparam & 0xFFFF
+            # Filter out separators to find the right callback
+            non_sep = [it for it in self.menu_items if it[0] != "-"]
             idx = item_id - 1000
-            if 0 <= idx < len(self.menu_items):
-                label, cb = self.menu_items[idx]
+            if 0 <= idx < len(non_sep):
+                item = non_sep[idx]
+                cb = item[1] if len(item) >= 2 else None
                 if cb:
                     cb()
             return 0

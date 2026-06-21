@@ -28,7 +28,9 @@ if getattr(sys, "frozen", False):
 else:
     BASE_PATH = Path(__file__).resolve().parent.parent
 
-from src.config import Config, load_config, save_config, DATA_DIR, rgb_to_bgr
+from src.config import (Config, load_config, save_config, DATA_DIR,
+                         load_history, append_history_record, compact_all,
+                         rgb_to_bgr)
 from src.api import DeepSeekClient, DeepSeekAPIError
 
 logger = logging.getLogger(__name__)
@@ -103,6 +105,17 @@ T = {
         "btn_show":       "Show Window",
         "btn_ref_now":    "Refresh Now",
         "tray_msg":       "Running in background. Double-click tray icon to open.",
+        "auto_start":      "Auto-start with Windows",
+        "tab_history":     "📊 Spending",
+        "range_day":       "Day",
+        "range_week":      "Week",
+        "range_month":     "Month",
+        "range_quarter":   "Qtr",
+        "range_year":      "Year",
+        "history_start":   "Start",
+        "history_current": "Current",
+        "history_change":  "Change",
+        "history_no_data": "No data yet",
     },
     "zh": {
         "title":        "💰 DeepSeek 余额监控",
@@ -155,6 +168,17 @@ T = {
         "btn_show":       "显示窗口",
         "btn_ref_now":    "立即刷新",
         "tray_msg":       "已最小化到后台，双击托盘图标打开。",
+        "auto_start":      "开机自启",
+        "tab_history":     "📊 花费曲线",
+        "range_day":       "日",
+        "range_week":      "周",
+        "range_month":     "月",
+        "range_quarter":   "季度",
+        "range_year":      "年",
+        "history_start":   "起始",
+        "history_current": "当前",
+        "history_change":  "变化",
+        "history_no_data": "暂无数据",
     },
 }
 
@@ -307,6 +331,122 @@ class ScrollableFrame(ttk.Frame):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  Balance Chart (tkinter Canvas)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class BalanceChart(tk.Canvas):
+    """A simple line chart for balance history drawn on a tkinter Canvas."""
+
+    PAD_LEFT = 60
+    PAD_RIGHT = 20
+    PAD_TOP = 16
+    PAD_BOTTOM = 36
+
+    def __init__(self, parent, **kwargs):
+        bg = kwargs.pop("bg", C["bg2"])
+        super().__init__(parent, bg=bg, highlightthickness=0, bd=0, **kwargs)
+        self._records = []
+        self.bind("<Configure>", lambda _: self.draw())
+
+    def set_data(self, records: list):
+        """Set the data to display. Each record: {ts, total, granted, topup, currency}."""
+        self._records = records or []
+        self.draw()
+
+    def draw(self):
+        """Redraw the chart."""
+        self.delete("all")
+        if not self._records:
+            self._draw_empty()
+            return
+
+        w = self.winfo_width()
+        h = self.winfo_height()
+        if w < 10 or h < 10:
+            return
+
+        left = self.PAD_LEFT
+        right = w - self.PAD_RIGHT
+        top = self.PAD_TOP
+        bottom = h - self.PAD_BOTTOM
+        pw = right - left
+        ph = bottom - top
+
+        if pw < 20 or ph < 20:
+            return
+
+        totals = [r["total"] for r in self._records]
+        y_min, y_max = min(totals), max(totals)
+        if y_min == y_max:
+            y_min -= abs(y_min) * 0.5 + 1
+            y_max += abs(y_max) * 0.5 + 1
+        margin = (y_max - y_min) * 0.10
+        y_min -= margin
+        y_max += margin
+        if y_min < 0 and y_max > 0:
+            y_min = min(y_min, -margin)
+
+        # Grid + Y axis labels
+        n_ticks = 5
+        tick_step = (y_max - y_min) / (n_ticks - 1)
+        for i in range(n_ticks):
+            val = y_min + tick_step * i
+            y = bottom - (val - y_min) / (y_max - y_min) * ph
+            # Grid line
+            self.create_line(left, y, right, y, fill=C["border"], dash=(3, 5))
+            # Y label
+            sym = self._records[0].get("currency", "CNY") if self._records else "CNY"
+            sym = _currency_symbol(sym)
+            self.create_text(left - 8, y, text=f"{sym}{val:.2f}",
+                             fill=C["text2"], font=F["small"], anchor="e")
+
+        n = len(self._records)
+        # X axis labels
+        x_labels = self._pick_x_labels(n)
+        # Map data points
+        points = []
+        for i, r in enumerate(self._records):
+            x = left + (i / max(n - 1, 1)) * pw
+            y = bottom - (r["total"] - y_min) / (y_max - y_min) * ph
+            points.append((x, y))
+            # Draw dot
+            if n <= 60 or i % max(1, n // 50) == 0:
+                self.create_oval(x - 3, y - 3, x + 3, y + 3,
+                                 fill=C["accent"], outline=C["bg2"], width=1)
+            # X axis label
+            if i in x_labels:
+                ts = r["ts"]
+                label = ts[11:16] if "T" in ts else ts[:10]  # HH:MM or YYYY-MM-DD
+                self.create_text(x, bottom + 16, text=label,
+                                 fill=C["text2"], font=F["small"], anchor="n")
+
+        # Draw line
+        if len(points) >= 2:
+            flat = [c for p in points for c in p]
+            self.create_line(*flat, fill=C["accent"], width=2, smooth=False, joinstyle="round")
+
+        # Axis lines
+        self.create_line(left, top, left, bottom, fill=C["border"])
+        self.create_line(left, bottom, right, bottom, fill=C["border"])
+
+    def _pick_x_labels(self, n: int) -> set:
+        """Pick which data point indices get X-axis labels."""
+        if n <= 8:
+            return set(range(n))
+        if n <= 30:
+            step = max(1, n // 6)
+            return set(range(0, n, step))
+        step = max(1, n // 8)
+        return set(range(0, n, step))
+
+    def _draw_empty(self):
+        self.create_text(
+            self.winfo_width() / 2, self.winfo_height() / 2,
+            text=t("history_no_data"), fill=C["text2"], font=F["body"],
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  MAIN APPLICATION
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -331,6 +471,15 @@ class DeepSeekMonitorApp:
         self._build_ui()
         self._init_tray()
         self._init_taskbar()
+
+        # Compact history on startup
+        compact_all()
+        self._last_history_date = datetime.now().strftime("%Y-%m-%d")
+        self._schedule_midnight_compact()
+
+        # Apply existing auto-start setting (ensures registry is correct)
+        if self.config.auto_start:
+            self._set_auto_start_registry(True)
 
         if self.config.api_key:
             self.root.after(300, self._refresh)
@@ -407,6 +556,7 @@ class DeepSeekMonitorApp:
         self._nb.pack(fill="both", expand=True, padx=12, pady=12)
         self._build_tab_overview()
         self._build_tab_settings()
+        self._build_tab_history()
 
     def _build_tab_overview(self):
         tab = ttk.Frame(self._nb)
@@ -505,7 +655,8 @@ class DeepSeekMonitorApp:
             clr_f.pack(fill="x", pady=(10, 0))
             self._tw_colors_label = ttk.Label(clr_f, text=t("balance_colors"), style="C.TLabel", font=F["small"])
             self._tw_colors_label.pack(side="left")
-            self._tw_colors = {}  # key → swatch widget
+            self._tw_colors = {}      # key → swatch widget
+            self._tw_color_tips = {}   # key → tip label widget
             th = self.config.tw_threshold_high
             tl = self.config.tw_threshold_low
             for key, cfg_attr, tip in [
@@ -520,8 +671,10 @@ class DeepSeekMonitorApp:
                               bd=1, width=3, font=("", 1))
                 sw.pack(side="left", padx=(0, 2))
                 sw.bind("<Button-1>", lambda e, a=cfg_attr, s=sw: self._pick_color(a, s))
-                ttk.Label(frm, text=tip, style="Sm.TLabel").pack(side="left")
+                tip_lbl = ttk.Label(frm, text=tip, style="Sm.TLabel")
+                tip_lbl.pack(side="left")
                 self._tw_colors[key] = sw
+                self._tw_color_tips[key] = tip_lbl
             # Threshold entry fields
             thr_f = ttk.Frame(twf, style="C.TFrame")
             thr_f.pack(fill="x", pady=(8, 0))
@@ -549,6 +702,18 @@ class DeepSeekMonitorApp:
             values=["zh", "en"], width=8).pack(side="left")
         self._lang_var.trace_add("write", lambda *_: self._switch_lang())
 
+        # Auto-start
+        ast = ttk.Frame(content, style="C.TFrame", padding=16)
+        ast.pack(fill="x", **pad)
+        self._sec_auto_start = ttk.Label(ast, text=t("auto_start"), style="C.TLabel", font=F["sec"])
+        self._sec_auto_start.pack(anchor="w")
+        self._auto_start_var = tk.BooleanVar(value=self.config.auto_start)
+        self._auto_start_chk = tk.Checkbutton(ast, text=t("auto_start"), variable=self._auto_start_var,
+            bg=C["bg2"], fg=C["text"], selectcolor=C["bg3"],
+            activebackground=C["bg2"], activeforeground=C["text"],
+            command=self._toggle_auto_start)
+        self._auto_start_chk.pack(anchor="w", pady=(6, 0))
+
         # About
         af = ttk.Frame(content, style="C.TFrame", padding=16)
         af.pack(fill="x", **pad)
@@ -557,6 +722,59 @@ class DeepSeekMonitorApp:
         self._about_lbl = tk.Label(af, text=t("about_text"), font=F["body"],
             bg=C["bg2"], fg=C["text2"], justify="left", anchor="w", wraplength=600)
         self._about_lbl.pack(fill="x", pady=(6, 0))
+
+    def _build_tab_history(self):
+        tab = ttk.Frame(self._nb)
+        self._nb.add(tab, text=f"  {t('tab_history')}  ")
+
+        sf = ScrollableFrame(tab)
+        sf.pack(fill="both", expand=True, padx=4, pady=4)
+
+        # Range selector bar
+        range_f = ttk.Frame(sf.content, style="C.TFrame")
+        range_f.pack(fill="x", padx=8, pady=(8, 0))
+        self._range_btns = {}
+        self._range_active = tk.StringVar(value="day")
+        for key in ["day", "week", "month", "quarter", "year"]:
+            btn = tk.Button(range_f, text=t(f"range_{key}"), font=F["small"],
+                            bg=C["btn"], fg=C["text"], relief="flat",
+                            activebackground=C["btn_h"], activeforeground=C["text"],
+                            command=lambda k=key: self._on_range_change(k))
+            btn.pack(side="left", padx=2)
+            self._range_btns[key] = btn
+        self._update_range_highlight()
+
+        # Chart area
+        chart_f = ttk.Frame(sf.content, style="C.TFrame")
+        chart_f.pack(fill="both", expand=True, padx=8, pady=8)
+        self._chart = BalanceChart(chart_f, height=300)
+        self._chart.pack(fill="both", expand=True)
+
+        # Stats bar
+        self._stats_f = ttk.Frame(sf.content, style="C.TFrame")
+        self._stats_f.pack(fill="x", padx=16, pady=(0, 8))
+        self._lbl_history_start = ttk.Label(self._stats_f, text="", style="Sm.TLabel")
+        self._lbl_history_start.pack(side="left", padx=(0, 16))
+        self._lbl_history_current = ttk.Label(self._stats_f, text="", style="Sm.TLabel")
+        self._lbl_history_current.pack(side="left", padx=(0, 16))
+        self._lbl_history_change = ttk.Label(self._stats_f, text="", style="Sm.TLabel")
+        self._lbl_history_change.pack(side="left")
+
+        # Load initial data
+        self._refresh_chart()
+
+    def _on_range_change(self, key: str):
+        self._range_active.set(key)
+        self._update_range_highlight()
+        self._refresh_chart()
+
+    def _update_range_highlight(self):
+        active = self._range_active.get()
+        for key, btn in self._range_btns.items():
+            if key == active:
+                btn.configure(bg=C["accent"], fg=C["bg"])
+            else:
+                btn.configure(bg=C["btn"], fg=C["text"])
 
     # ── Language switch ───────────────────────────────────────────────────────
 
@@ -583,6 +801,8 @@ class DeepSeekMonitorApp:
             self._tw_colors_label.configure(text=t("balance_colors"))
             self._tw_thr_label.configure(text=t("thresholds"))
         self._sec_lang.configure(text=t("language"))
+        self._sec_auto_start.configure(text=t("auto_start"))
+        self._auto_start_chk.configure(text=t("auto_start"))
         self._sec_about.configure(text=t("about"))
         self._about_lbl.configure(text=t("about_text"))
         # Overview tab
@@ -590,7 +810,16 @@ class DeepSeekMonitorApp:
         self._pricing_text.configure(text=t("pricing_text"))
         # Update taskbar widget label
         if self._tw and self._tw.is_alive():
-            self._tw.label = t("balance")
+            self._tw.update_label(t("balance"))
+        # Update threshold tip labels
+        self._update_threshold_labels()
+        # History tab
+        self._nb.tab(2, text=f"  {t('tab_history')}  ")
+        for key in ["day", "week", "month", "quarter", "year"]:
+            if key in self._range_btns:
+                self._range_btns[key].configure(text=t(f"range_{key}"))
+        if hasattr(self, "_lbl_history_start"):
+            self._refresh_chart()
         # Update balance display
         if self._last_data:
             self._display_balance(self._last_data)
@@ -605,9 +834,12 @@ class DeepSeekMonitorApp:
         self._start_tw()
 
     def _start_tw(self):
-        """Create and start a fresh taskbar widget."""
-        if self._tw:
-            self._tw.stop_and_wait()   # wait for old widget to fully destroy
+        """Create and start a fresh taskbar widget (non-blocking).
+
+        Any existing widget is cleaned up asynchronously so the main
+        UI thread is never blocked.
+        """
+        old = self._tw
         self._tw = TaskbarWidget(
             api_key=self.config.api_key,
             label=t("balance"),         # i18n: "余额" or "Balance"
@@ -621,15 +853,19 @@ class DeepSeekMonitorApp:
             threshold_low=self.config.tw_threshold_low,
         )
         self._tw.start()
+        # Clean up old widget in background daemon thread
+        if old:
+            threading.Thread(target=old.stop_and_wait, daemon=True).start()
 
     def _stop_tw(self):
-        """Stop and destroy the taskbar widget."""
+        """Stop the taskbar widget without blocking the main thread."""
         if self._tw:
-            self._tw.stop_and_wait()
+            old = self._tw
             self._tw = None
+            threading.Thread(target=old.stop_and_wait, daemon=True).start()
 
     def _toggle_tw(self):
-        """Called when the taskbar widget toggle changes."""
+        """Called when taskbar widget toggle or position changes."""
         enabled = self._tw_en.get()
         pos = self._tw_pos.get()
         self.config.show_taskbar_widget = enabled
@@ -643,7 +879,10 @@ class DeepSeekMonitorApp:
                 self.config.show_taskbar_widget = False
                 save_config(self.config)
                 return
-            self._start_tw()
+            if self._tw and self._tw.is_alive():
+                self._tw.update_position(self.config.taskbar_widget_position)
+            else:
+                self._start_tw()
         else:
             self._stop_tw()
 
@@ -668,6 +907,10 @@ class DeepSeekMonitorApp:
             menu_items=[
                 (t("btn_show"),    lambda: self.root.after(0, self._raise)),
                 (t("btn_ref_now"), lambda: self.root.after(0, self._manual_refresh)),
+                ("-", None),
+                (t("auto_start"),
+                 lambda: self.root.after(0, self._tray_toggle_auto_start),
+                 lambda: self.config.auto_start),
                 ("-", None),
                 (t("btn_exit"),    lambda: self.root.after(0, self._quit)),
             ],
@@ -701,6 +944,24 @@ class DeepSeekMonitorApp:
         self.root.destroy()
 
     # ── Data refresh ──────────────────────────────────────────────────────────
+
+    def _schedule_midnight_compact(self):
+        """Schedule a one-shot timer to compact history at 00:01.
+
+        After firing, re-schedules itself for the next midnight.
+        """
+        from datetime import timedelta
+        now = datetime.now()
+        midnight = now.replace(hour=0, minute=1, second=0, microsecond=0)
+        if now >= midnight:
+            midnight += timedelta(days=1)
+        delay_ms = int((midnight - now).total_seconds() * 1000)
+        self.root.after(delay_ms, self._on_midnight_compact)
+
+    def _on_midnight_compact(self):
+        compact_all()
+        self._refresh_chart()
+        self._schedule_midnight_compact()  # re-arm for next night
 
     def _schedule(self):
         if self._timer:
@@ -746,6 +1007,7 @@ class DeepSeekMonitorApp:
         if data:
             self._last_data = data
             self._display_balance(data)
+            self._append_history(data)
             if self._tray:
                 b = (data.get("balance_infos") or [{}])[0]
                 sym = _currency_symbol(b.get("currency"))
@@ -770,6 +1032,59 @@ class DeepSeekMonitorApp:
         self._ov_status_l.configure(text=fb["avail"])
         self._ov_grant_l.configure(text=fb["granted"])
         self._ov_topup_l.configure(text=fb["topup"])
+
+    # ── Balance History ───────────────────────────────────────────────────────
+
+    _last_history_date: str = ""  # track day boundary for auto-compact
+
+    def _append_history(self, data: dict):
+        """Append a balance record to the day file, compact on day boundary."""
+        fb = _format_balance(data)
+        if "error" in fb:
+            return
+        record = {
+            "ts": datetime.now().isoformat(sep="T", timespec="seconds"),
+            "total": fb["total_raw"],
+            "granted": float((data.get("balance_infos") or [{}])[0].get("granted_balance", 0)),
+            "topup": float((data.get("balance_infos") or [{}])[0].get("topped_up_balance", 0)),
+            "currency": (data.get("balance_infos") or [{}])[0].get("currency", "CNY"),
+        }
+        append_history_record(record)
+
+        # Check day boundary — compact if we crossed midnight
+        today = datetime.now().strftime("%Y-%m-%d")
+        if self._last_history_date and self._last_history_date != today:
+            compact_all()
+        self._last_history_date = today
+
+        self._refresh_chart()
+
+    def _refresh_chart(self):
+        """Reload history data from the appropriate layered file."""
+        if not hasattr(self, "_chart"):
+            return
+        range_key = self._range_active.get()
+        records = load_history(range_key)
+        self._chart.set_data(records)
+        # Update stats
+        if records:
+            start_total = records[0]["total"]
+            end_total = records[-1]["total"]
+            delta = end_total - start_total
+            sym = _currency_symbol(records[0].get("currency", "CNY"))
+            self._lbl_history_start.configure(
+                text=f"{t('history_start')}: {sym}{start_total:.2f}")
+            self._lbl_history_current.configure(
+                text=f"{t('history_current')}: {sym}{end_total:.2f}")
+            arrow = "↑" if delta > 0 else "↓" if delta < 0 else "→"
+            color = C["green"] if delta > 0 else C["red"] if delta < 0 else C["text2"]
+            self._lbl_history_change.configure(
+                text=f"{t('history_change')}: {arrow} {sym}{abs(delta):.2f}",
+                foreground=color)
+        else:
+            self._lbl_history_start.configure(text="")
+            self._lbl_history_current.configure(text="")
+            self._lbl_history_change.configure(text="")
 
     # ── Login ─────────────────────────────────────────────────────────────────
 
@@ -802,12 +1117,49 @@ class DeepSeekMonitorApp:
             messagebox.showinfo("", t("key_saved"))
             # Start taskbar widget now that we have a key
             if self.config.show_taskbar_widget and HAS_TW:
-                self._start_tw()
+                if self._tw and self._tw.is_alive():
+                    self._tw.update_client(res["k"])
+                else:
+                    self._start_tw()
             self._refresh(); self._schedule()
         elif not self.config.api_key:
             self._lbl_status.configure(text=t("no_key"))
 
     # ── Settings helpers ──────────────────────────────────────────────────────
+
+    def _toggle_auto_start(self):
+        """Enable or disable auto-start with Windows."""
+        enabled = self._auto_start_var.get()
+        self.config.auto_start = enabled
+        save_config(self.config)
+        self._set_auto_start_registry(enabled)
+
+    def _tray_toggle_auto_start(self):
+        """Toggle auto-start from tray menu — keep checkbox in sync."""
+        self.config.auto_start = not self.config.auto_start
+        save_config(self.config)
+        self._set_auto_start_registry(self.config.auto_start)
+        self._auto_start_var.set(self.config.auto_start)
+
+    def _set_auto_start_registry(self, enabled: bool):
+        """Write or remove the registry entry for Windows auto-start."""
+        try:
+            import winreg
+            key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0,
+                                winreg.KEY_SET_VALUE) as key:
+                if enabled:
+                    exe = sys.executable if getattr(sys, "frozen", False) else sys.executable
+                    winreg.SetValueEx(key, "DeepSeekMonitor", 0, winreg.REG_SZ, exe)
+                    logger.info("Auto-start enabled: %s", exe)
+                else:
+                    try:
+                        winreg.DeleteValue(key, "DeepSeekMonitor")
+                        logger.info("Auto-start disabled")
+                    except FileNotFoundError:
+                        pass
+        except Exception:
+            logger.exception("Failed to update auto-start registry")
 
     def _pick_color(self, cfg_attr: str, swatch: tk.Label):
         """Open system color picker and apply the chosen color."""
@@ -820,9 +1172,19 @@ class DeepSeekMonitorApp:
         setattr(self.config, cfg_attr, hex_color)
         save_config(self.config)
         swatch.configure(bg=hex_color)
-        # Restart taskbar widget with new colors
+        # In-place update — no restart needed
         if self._tw and self._tw.is_alive():
-            self._start_tw()
+            bgr = rgb_to_bgr(hex_color)
+            kwargs = {}
+            if cfg_attr == "tw_color_high":
+                kwargs["color_high"] = bgr
+            elif cfg_attr == "tw_color_mid":
+                kwargs["color_mid"] = bgr
+            elif cfg_attr == "tw_color_low":
+                kwargs["color_low"] = bgr
+            elif cfg_attr == "tw_color_label":
+                kwargs["color_label"] = bgr
+            self._tw.update_colors(**kwargs)
 
     def _save_thresholds(self):
         """Read threshold values from UI and save to config."""
@@ -834,11 +1196,26 @@ class DeepSeekMonitorApp:
             self.config.tw_threshold_high = th
             self.config.tw_threshold_low  = tl
             save_config(self.config)
-            # Restart taskbar widget with new thresholds
+            self._update_threshold_labels()
+            # In-place update — no restart needed
             if self._tw and self._tw.is_alive():
-                self._start_tw()
+                self._tw.update_thresholds(threshold_high=th, threshold_low=tl)
         except ValueError:
             pass
+
+    def _update_threshold_labels(self):
+        """Refresh the threshold tip labels next to the colour swatches."""
+        if not hasattr(self, "_tw_color_tips"):
+            return
+        th = self.config.tw_threshold_high
+        tl = self.config.tw_threshold_low
+        tips = {
+            "high": f"> {th:.0f}",
+            "mid":  f"{tl:.0f} ~ {th:.0f}",
+            "low":  f"≤ {tl:.0f}",
+        }
+        for key, lbl in self._tw_color_tips.items():
+            lbl.configure(text=tips[key])
 
     def _toggle_key_vis(self):
         cur = self._key_entry.cget("show")
@@ -853,7 +1230,10 @@ class DeepSeekMonitorApp:
         self.client = DeepSeekClient(raw)
         messagebox.showinfo("", t("key_saved"))
         if self.config.show_taskbar_widget and HAS_TW:
-            self._start_tw()
+            if self._tw and self._tw.is_alive():
+                self._tw.update_client(raw)
+            else:
+                self._start_tw()
         self._refresh()
 
     def _save_interval(self):
@@ -861,9 +1241,9 @@ class DeepSeekMonitorApp:
             v = int(self._int_var.get())
             self.config.refresh_interval = v; save_config(self.config)
             self._schedule()
-            # Restart widget with new interval
+            # In-place update — no restart needed
             if self._tw and self._tw.is_alive():
-                self._start_tw()
+                self._tw.update_interval(v)
         except ValueError:
             pass
 

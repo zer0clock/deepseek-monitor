@@ -235,6 +235,56 @@ class TaskbarWidget:
     def is_alive(self) -> bool:
         return self._running and self._hwnd is not None
 
+    # ── In-place updates (no restart needed) ──────────────────────────────────
+
+    def update_colors(self, color_high=None, color_mid=None,
+                      color_low=None, color_label=None):
+        """Update balance colors in-place (thread-safe). Pass BGR ints."""
+        if color_high is not None:
+            self.C_GREEN = color_high
+        if color_mid is not None:
+            self.C_YELLOW = color_mid
+        if color_low is not None:
+            self.C_RED = color_low
+        if color_label is not None:
+            self.C_LABEL = color_label
+        if self._hwnd:
+            InvalidateRect(self._hwnd, None, True)
+
+    def update_thresholds(self, threshold_high=None, threshold_low=None):
+        """Update balance thresholds in-place (thread-safe)."""
+        if threshold_high is not None:
+            self.threshold_high = threshold_high
+        if threshold_low is not None:
+            self.threshold_low = threshold_low
+        if self._hwnd:
+            InvalidateRect(self._hwnd, None, True)
+
+    def update_interval(self, refresh_seconds):
+        """Update the refresh timer interval in-place (thread-safe)."""
+        self.refresh_seconds = refresh_seconds
+        if self._hwnd:
+            KillTimer(self._hwnd, self.TIMER_ID)
+            SetTimer(self._hwnd, self.TIMER_ID, refresh_seconds * 1000, None)
+
+    def update_position(self, position):
+        """Re-position the widget without restarting (thread-safe)."""
+        self.position = position
+        if self._hwnd:
+            self._find_handles()
+            self._position()
+
+    def update_label(self, label):
+        """Update the displayed label text in-place (thread-safe)."""
+        self.label = label
+        if self._hwnd:
+            InvalidateRect(self._hwnd, None, True)
+
+    def update_client(self, api_key):
+        """Replace the API client with a new key (thread-safe)."""
+        self.api_key = api_key
+        self._client = DeepSeekClient(api_key)
+
     # ── Thread ────────────────────────────────────────────────────────────────
 
     def _run(self):

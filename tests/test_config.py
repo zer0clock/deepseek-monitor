@@ -11,7 +11,8 @@ from unittest import TestCase, main as ut_main
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from src.config import Config, load_config, save_config, CONFIG_FILE, DATA_DIR
+from src.config import (Config, load_config, save_config, CONFIG_FILE, DATA_DIR,
+                         load_history, append_history_record, compact_all)
 
 
 class TestConfig(TestCase):
@@ -135,6 +136,54 @@ class TestConfig(TestCase):
             self.assertEqual(cfg.api_key, "sk-ok")
             with self.assertRaises(AttributeError):
                 _ = cfg.bogus_field
+
+
+class TestBalanceHistory(TestCase):
+
+    def _patch_hist_paths(self, tmp_dir: Path):
+        import src.config as mod
+        for key in mod.HIST_FILES:
+            mod.HIST_FILES[key] = tmp_dir / f"balance_history_{key}.json"
+
+    def test_load_history_returns_empty_for_no_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._patch_hist_paths(Path(td))
+            result = load_history("day")
+            self.assertEqual(result, [])
+
+    def test_append_and_load(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._patch_hist_paths(Path(td))
+            record = {"ts": "2026-06-21T10:00:00", "total": 100.0,
+                       "granted": 10.0, "topup": 90.0, "currency": "CNY"}
+            append_history_record(record)
+            records = load_history("day")
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0]["total"], 100.0)
+
+    def test_compact_all_generates_layered_files(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._patch_hist_paths(Path(td))
+            import src.config as mod
+            # Add records spanning 3 days
+            mod._save_json(mod.HIST_FILES["day"], [
+                {"ts": "2026-06-19T10:00:00", "total": 100.0, "granted": 10.0, "topup": 90.0, "currency": "CNY"},
+                {"ts": "2026-06-19T12:00:00", "total": 90.0, "granted": 10.0, "topup": 80.0, "currency": "CNY"},
+                {"ts": "2026-06-20T10:00:00", "total": 80.0, "granted": 10.0, "topup": 70.0, "currency": "CNY"},
+                {"ts": "2026-06-21T10:00:00", "total": 50.0, "granted": 5.0, "topup": 45.0, "currency": "CNY"},
+            ])
+            compact_all()
+            # Day file: only today's records remain
+            day = mod._load_json(mod.HIST_FILES["day"])
+            today = __import__("datetime").datetime.now().strftime("%Y-%m-%d")
+            for r in day:
+                self.assertTrue(r["ts"].startswith(today))
+            # Week file should have aggregated data
+            week = mod._load_json(mod.HIST_FILES["week"])
+            self.assertGreater(len(week), 0, "Week file should not be empty")
+            # Month file should exist
+            month = mod._load_json(mod.HIST_FILES["month"])
+            self.assertGreater(len(month), 0, "Month file should not be empty")
 
 
 if __name__ == "__main__":
