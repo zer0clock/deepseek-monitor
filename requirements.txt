@@ -1,9 +1,9 @@
 # DeepSeek Monitor — dependencies
 # Core (required)
+PyQt5>=5.15          # GUI framework (Qt)
 Pillow>=9.0.0        # tray icon generation + favicon
 
 # Optional (already included in Python stdlib):
-#   tkinter  — GUI framework (ships with Python)
 #   ctypes   — Win32 API for system tray
 #   urllib   — HTTP requests
 #   json     — config/usage persistence

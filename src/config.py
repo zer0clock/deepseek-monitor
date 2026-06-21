@@ -188,6 +188,8 @@ class Config:
     tw_threshold_low:  float = 5.0
     # Auto-start with Windows
     auto_start: bool = False
+    # Theme mode: "light" / "dark" / "system"
+    theme_mode: str = "system"
 
 
 def load_config() -> Config:

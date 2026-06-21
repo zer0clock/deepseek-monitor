@@ -4,6 +4,7 @@
 
 ![Platform](https://img.shields.io/badge/Platform-Windows%20Only-blue)
 ![Python](https://img.shields.io/badge/Python-3.8+-green)
+![UI](https://img.shields.io/badge/UI-PyQt5%2FQSS-purple)
 
 ---
 
@@ -12,11 +13,12 @@
 | 功能 | 说明 |
 |------|------|
 | 📌 **任务栏余额** | 余额直接嵌入 Windows 任务栏（SetParent + LWA_COLORKEY） |
-| 💰 **余额查询** | 显示总余额 / 赠送余额 / 充值余额，支持 CNY / USD |
-| 📊 **花费曲线** | 日/周/月/季度/年 余额变化趋势图，分层存储高效读取 |
+| 💰 **余额查询** | 显示总余额 / 赠送余额 / 充值余额 / 今日花费 / 预计可用天数 |
+| 📊 **花费曲线** | 面积渐变图 + MIN/MAX 标注 + 鼠标悬停 tooltip，5 档时间范围 |
+| 🎨 **三模主题** | ☀️ Light / 🌙 Dark / 🔄 跟随系统，全局 QSS 即时切换 |
 | 🎨 **自定义颜色** | 余额高/中/低三档颜色可用系统色盘自定义，即时生效 |
 | 📏 **可调阈值** | 余额区间的 High / Low 阈值可自由修改 |
-| 🚀 **开机自启** | 设置页 + 托盘右键菜单，一键开关 |
+| 🚀 **开机自启** | 设置页 + 托盘右键菜单 ✓ 勾选 |
 | ⏱️ **自动刷新** | 15 秒 ~ 1 小时，可配置 |
 | 🔔 **系统托盘** | 最小化到通知区域，右键菜单含自启开关 |
 | 🌐 **中英双语** | 一键切换 |
@@ -56,6 +58,7 @@ python main.py
 | `tw_color_high` / `_mid` / `_low` | 余额高/中/低颜色 (RGB hex) | `#99FF66` / `#FFD66D` / `#FF6666` |
 | `tw_threshold_high` / `_low` | 余额颜色切换阈值 | `20.0` / `5.0` |
 | `auto_start` | 开机自启 | `false` |
+| `theme_mode` | 主题 `"light"` / `"dark"` / `"system"` | `"system"` |
 
 历史数据自动存储到 `~/.deepseek-monitor/balance_history_*.json`，分日/周/月/季度/年五个分层文件。
 
@@ -72,10 +75,13 @@ deepseek-monitor/
 │   └── favicon.ico
 ├── src/
 │   ├── api.py             # DeepSeek API 客户端
-│   ├── app.py             # 主界面 (tkinter)
-│   ├── config.py          # 配置管理
+│   ├── app.py             # 主界面 (PyQt5)
+│   ├── charts.py          # QPainter 余额趋势图
+│   ├── config.py          # 配置管理 + 分层历史存储
 │   ├── taskbar_widget.py  # 任务栏小组件 (Win32 API)
-│   └── tray.py            # 系统托盘图标
+│   ├── theme.py           # QSS 主题系统 (Light/Dark/System)
+│   ├── tray.py            # 系统托盘图标
+│   └── widgets.py         # GlassCard / StatCard / CollapsibleSection
 └── tests/
     ├── test_api.py
     └── test_config.py
@@ -86,9 +92,15 @@ deepseek-monitor/
 ## 🛠 打包
 
 ```bash
-pip install pyinstaller Pillow
-pyinstaller --onefile --windowed --name DeepSeekMonitor --icon=assets/favicon.ico --add-data "src;src" main.py
+pip install pyinstaller Pillow PyQt5
+pyinstaller --onefile --windowed --name DeepSeekMonitor \
+  --icon=assets/favicon.ico --add-data "src;src" \
+  --add-binary "path/to/libcrypto-3-x64.dll;." \
+  --add-binary "path/to/libssl-3-x64.dll;." \
+  --hidden-import ssl main.py
 ```
+
+> 注意：需要显式打包 OpenSSL DLL（`libcrypto-3-x64.dll` / `libssl-3-x64.dll`），否则 HTTPS 请求会失败。
 
 ---
 

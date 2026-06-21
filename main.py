@@ -21,17 +21,12 @@ sys.path.insert(0, str(ROOT))
 # ══════════════════════════════════════════════════════════════════════════════
 
 MUTEX_NAME = "Global\\DeepSeekMonitor_SingleInstance"
-WM_RESTORE_FOCUS = 0x0001  # custom message to restore & focus the existing window
 
 
 def _ensure_single_instance() -> bool:
-    """Return True if this is the first instance.
-
-    If another instance is already running, bring its window to the
-    front and return False to signal the caller should exit.
-    """
+    """Return True if this is the first instance."""
     if sys.platform != "win32":
-        return True  # single-instance only on Windows
+        return True
 
     kernel32 = ctypes.windll.kernel32
     user32 = ctypes.windll.user32
@@ -41,22 +36,14 @@ def _ensure_single_instance() -> bool:
 
     handle = kernel32.CreateMutexW(None, False, MUTEX_NAME)
     if kernel32.GetLastError() != ERROR_ALREADY_EXISTS:
-        # Keep the mutex alive for the lifetime of the process
         return True
 
-    # Another instance is running — find and restore its window
+    # Find existing window and bring to front
     hwnd = user32.FindWindowW(None, "DeepSeek Monitor")
-    if not hwnd:
-        # Window title may have changed; try the Tk class name
-        hwnd = user32.FindWindowW("TkTopLevel", None)
-
     if hwnd:
-        # If minimized, restore it
         if user32.IsIconic(hwnd):
             user32.ShowWindow(hwnd, SW_RESTORE)
-        # Bring to foreground
         user32.SetForegroundWindow(hwnd)
-        # Also try AttachThreadInput for reliable foreground switching
         current_thread = kernel32.GetCurrentThreadId()
         foreground_thread = user32.GetWindowThreadProcessId(
             user32.GetForegroundWindow(), None
