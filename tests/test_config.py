@@ -164,13 +164,17 @@ class TestBalanceHistory(TestCase):
     def test_compact_all_generates_layered_files(self):
         with tempfile.TemporaryDirectory() as td:
             self._patch_hist_paths(Path(td))
+            from datetime import datetime, timedelta
+            now = datetime.now()
+            today = now.strftime("%Y-%m-%d")
+            yest = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+            d2ago = (now - timedelta(days=2)).strftime("%Y-%m-%d")
             import src.config as mod
-            # Add records spanning 3 days
             mod._save_json(mod.HIST_FILES["day"], [
-                {"ts": "2026-06-19T10:00:00", "total": 100.0, "granted": 10.0, "topup": 90.0, "currency": "CNY"},
-                {"ts": "2026-06-19T12:00:00", "total": 90.0, "granted": 10.0, "topup": 80.0, "currency": "CNY"},
-                {"ts": "2026-06-20T10:00:00", "total": 80.0, "granted": 10.0, "topup": 70.0, "currency": "CNY"},
-                {"ts": "2026-06-21T10:00:00", "total": 50.0, "granted": 5.0, "topup": 45.0, "currency": "CNY"},
+                {"ts": f"{d2ago}T10:00:00", "total": 100.0, "granted": 10.0, "topup": 90.0, "currency": "CNY"},
+                {"ts": f"{d2ago}T12:00:00", "total": 90.0, "granted": 10.0, "topup": 80.0, "currency": "CNY"},
+                {"ts": f"{yest}T10:00:00", "total": 80.0, "granted": 10.0, "topup": 70.0, "currency": "CNY"},
+                {"ts": f"{today}T10:00:00", "total": 50.0, "granted": 5.0, "topup": 45.0, "currency": "CNY"},
             ])
             compact_all()
             # Day file: only today's records remain
